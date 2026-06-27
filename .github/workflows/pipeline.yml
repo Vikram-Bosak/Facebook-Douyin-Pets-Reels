@@ -1,0 +1,63 @@
+name: Douyin Pets Reels Pipeline
+
+on:
+  schedule:
+    # Run every 4 hours
+    - cron: '0 */4 * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Force run even if limits reached'
+        required: false
+        default: 'false'
+
+env:
+  MAX_DOWNLOADS: "10"
+  MAX_EDITS: "10"
+  HEADLESS: "1"
+  NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+  NVIDIA_MODEL: "meta/llama-3.1-8b-instruct"
+  TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+  TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          sudo apt-get install -y fonts-noto-cjk
+
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install Playwright browsers
+        run: |
+          playwright install chromium
+          playwright install-deps chromium
+
+      - name: Run pipeline
+        run: python main_agent.py
+
+      - name: Upload edited videos
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: edited-videos-${{ github.run_number }}
+          path: workspace/edited/
+          retention-days: 7
+          if-no-files-found: ignore
