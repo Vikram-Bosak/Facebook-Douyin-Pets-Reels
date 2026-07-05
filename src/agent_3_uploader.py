@@ -86,8 +86,7 @@ def run_upload(video_data):
         print(f"Failed to upload to Facebook: {e}")
         video_data["upload_status"] = "Failed"
         video_data["fb_err"] = str(e)
-
-    # YouTube Upload (independent of Facebook success)
+    # YouTube Upload (independent of Facebook result)
     has_yt_creds = os.environ.get('YOUTUBE_TOKEN_JSON') or os.path.exists('youtube_token.json')
     if has_yt_creds:
         try:
@@ -96,13 +95,10 @@ def run_upload(video_data):
             yt_desc = f"{fb_caption}\n#shorts"
             yt_url = upload_to_youtube(edited_video_path, yt_title, yt_desc)
             video_data["yt_url"] = yt_url
-            logger.info(f"Successfully uploaded to YouTube: {yt_url}")
         except Exception as e:
-            logger.error(f"Failed to upload to YouTube: {e}")
             print(f"Failed to upload to YouTube: {e}")
             video_data["yt_err"] = str(e)
     else:
-        logger.info("YouTube credentials not found. Skipping YouTube upload.")
         print("YouTube credentials not found. Skipping YouTube upload.")
         video_data["yt_url"] = "Skipped (Not configured)"
 

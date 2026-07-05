@@ -28,8 +28,6 @@ jobs:
     concurrency:
       group: pet-pipeline
       cancel-in-progress: false
-    permissions:
-      contents: write
 
     steps:
       - name: Checkout repository

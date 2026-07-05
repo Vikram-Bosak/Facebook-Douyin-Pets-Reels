@@ -50,14 +50,13 @@ def main():
     repo_url = f"https://github.com/{repo}"
     run_url = f"{repo_url}/actions/runs/{run_id}" if run_id else f"{repo_url}/actions"
 
-    emoji_status = "✅" if upload_status == "Success" else "❌"
-    yt_status_label = "Success" if yt_status == "Success" else "Failed"
+    emoji_status = "✅" if overall_status == "Success" else "❌"
 
     message = (
         f"✅ Pipeline Run Completed\n\n"
         f"🎬 Video Name:\n{video_name}\n\n"
-        f"📤 Facebook Upload Status: {upload_status}\n"
-        f"📤 YouTube Upload Status: {yt_status_label}\n\n"
+        f"📤 Facebook Upload Status: {fb_status}\n"
+        f"📤 YouTube Upload Status: {yt_status}\n\n"
         f"🏷️ SEO Title:\n{seo_title}\n\n"
         f"📝 Description:\n{description}\n\n"
         f"Original File: {video_name}.mp4\n\n"
