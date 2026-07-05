@@ -84,27 +84,31 @@ def run_pipeline():
 
     edited_videos = []
     for video_path in downloaded:
-        if not os.path.exists(video_path):
-            logger.warning(f"Video not found: {video_path}")
+        try:
+            if not os.path.exists(video_path):
+                logger.warning(f"Video not found: {video_path}")
+                continue
+
+            # Check aspect ratio
+            if not validate_aspect_ratio(video_path):
+                logger.info(f"Skipping {video_path} - not 9:16 aspect ratio")
+                continue
+
+            video_data = {
+                "id": Path(video_path).stem,
+                "title": Path(video_path).stem,
+                "local_path": str(video_path),
+            }
+            result = process_video(video_data)
+
+            if result.get("editing_status") == "Success" and result.get("edited_path"):
+                edited_videos.append(result)
+                logger.info(f"Edited: {result['edited_path']}")
+            else:
+                logger.error(f"Editing failed for {video_path}")
+        except Exception as e:
+            logger.error(f"Error editing video {video_path}: {e}. Skipping to next video.")
             continue
-
-        # Check aspect ratio
-        if not validate_aspect_ratio(video_path):
-            logger.info(f"Skipping {video_path} - not 9:16 aspect ratio")
-            continue
-
-        video_data = {
-            "id": Path(video_path).stem,
-            "title": Path(video_path).stem,
-            "local_path": str(video_path),
-        }
-        result = process_video(video_data)
-
-        if result.get("editing_status") == "Success" and result.get("edited_path"):
-            edited_videos.append(result)
-            logger.info(f"Edited: {result['edited_path']}")
-        else:
-            logger.error(f"Editing failed for {video_path}")
 
     if not edited_videos:
         logger.warning("No videos were successfully edited.")
@@ -119,24 +123,41 @@ def run_pipeline():
         from agent_3_uploader import run_upload
 
     for video_data in edited_videos:
-        result = run_upload(video_data)
-        fb_status = result.get("upload_status", "Failed")
-        logger.info(f"Upload result: {fb_status}")
+        try:
+            result = run_upload(video_data)
+            fb_status = result.get("upload_status", "Failed")
+            logger.info(f"Upload result: {fb_status}")
 
-        # Write report for agent_4
-        report_data = {
-            "video_name": result.get("title", "N/A"),
-            "download_status": "Success",
-            "editing_status": result.get("editing_status", "N/A"),
-            "upload_status": result.get("upload_status", "N/A"),
-            "seo_title": result.get("seo_title", "N/A"),
-            "description": result.get("description", "N/A"),
-            "facebook_url": result.get("fb_url", "N/A"),
-            "youtube_url": result.get("yt_url", "N/A"),
-            "source_url": result.get("source_url", "N/A"),
-        }
-        report_path = WORKSPACE / "report.json"
-        report_path.write_text(json.dumps(report_data, indent=2))
+            # Write report for agent_4
+            report_data = {
+                "video_name": result.get("title", "N/A"),
+                "download_status": "Success",
+                "editing_status": result.get("editing_status", "N/A"),
+                "upload_status": result.get("upload_status", "N/A"),
+                "seo_title": result.get("seo_title", "N/A"),
+                "description": result.get("description", "N/A"),
+                "facebook_url": result.get("fb_url", "N/A"),
+                "youtube_url": result.get("yt_url", "N/A"),
+                "source_url": result.get("source_url", "N/A"),
+            }
+            report_path = WORKSPACE / "report.json"
+            report_path.write_text(json.dumps(report_data, indent=2))
+        except Exception as e:
+            logger.error(f"Upload failed for video {video_data.get('title', 'unknown')}: {e}")
+            # Write a failure report so reporter can still run
+            report_data = {
+                "video_name": video_data.get("title", "N/A"),
+                "download_status": "Success",
+                "editing_status": video_data.get("editing_status", "N/A"),
+                "upload_status": "Failed",
+                "seo_title": video_data.get("seo_title", "N/A"),
+                "description": "N/A",
+                "facebook_url": "Failed",
+                "youtube_url": "N/A",
+                "source_url": video_data.get("source_url", "N/A"),
+            }
+            report_path = WORKSPACE / "report.json"
+            report_path.write_text(json.dumps(report_data, indent=2))
 
     # ---- Step 4: Report + Cleanup ----
     logger.info("Step 4/4: Reporting and cleanup...")
@@ -152,7 +173,10 @@ def run_pipeline():
         logger.error(f"Reporter failed: {e}")
 
     # Update state
-    save_state(state)
+    try:
+        save_state(state)
+    except Exception as e:
+        logger.error(f"Failed to save state: {e}")
 
     logger.info("=== Pipeline Complete ===")
     logger.info(f"Videos downloaded: {len(downloaded)}")

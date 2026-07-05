@@ -52,3 +52,6 @@ assets/*.mp3
 
 # Jupyter
 .ipynb_checkpoints/
+
+# Health check
+.env.example

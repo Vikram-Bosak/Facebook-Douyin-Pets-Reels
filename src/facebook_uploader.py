@@ -45,6 +45,7 @@ def _handle_api_error(response, step_name):
     """
     Checks the response status. If it's an error, attempts to parse
     the Facebook JSON error details and raises a descriptive Exception.
+    Handles Error 190 (expired/invalid token) with a clear, actionable message.
     """
     if response.status_code >= 400:
         try:
@@ -54,6 +55,16 @@ def _handle_api_error(response, step_name):
             err_code = error_info.get('code', 'unknown')
             err_subcode = error_info.get('error_subcode', 'unknown')
             if err_msg:
+                # Error 190: The access token has expired or is invalid
+                if err_code == 190:
+                    logger.error(
+                        f"Facebook API Error ({step_name}): ACCESS TOKEN EXPIRED or INVALID (code: 190, subcode: {err_subcode}). "
+                        f"Message: {err_msg}. Please refresh your FB_ACCESS_TOKEN secret in GitHub."
+                    )
+                    raise Exception(
+                        f"Facebook API Error ({step_name}): Access token expired/invalid (code: 190). "
+                        f"Please refresh FB_ACCESS_TOKEN. Details: {err_msg}"
+                    )
                 raise Exception(f"Facebook API Error ({step_name}): {err_msg} (code: {err_code}, subcode: {err_subcode})")
         except Exception as e:
             if "Facebook API Error" in str(e):

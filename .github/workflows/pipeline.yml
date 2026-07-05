@@ -23,9 +23,13 @@ jobs:
     name: Pet Reels E2E Pipeline
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: write
     concurrency:
       group: pet-pipeline
       cancel-in-progress: false
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout repository

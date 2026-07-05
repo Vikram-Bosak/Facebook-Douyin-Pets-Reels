@@ -7,7 +7,10 @@ import os
 import sys
 import re
 import time
+import logging
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 try:
     from src.facebook_uploader import upload_reel
@@ -84,32 +87,30 @@ def run_upload(video_data):
         video_data["upload_status"] = "Failed"
         video_data["fb_err"] = str(e)
 
-    # YouTube Upload (only if Facebook upload succeeded)
-    if video_data.get("upload_status") == "Success":
-        has_yt_creds = os.environ.get('YOUTUBE_TOKEN_JSON') or os.path.exists('youtube_token.json')
-        if has_yt_creds:
-            try:
-                time.sleep(2)
-                yt_title = title[:100]
-                yt_desc = f"{fb_caption}\n#shorts"
-                yt_url = upload_to_youtube(edited_video_path, yt_title, yt_desc)
-                video_data["yt_url"] = yt_url
-            except Exception as e:
-                print(f"Failed to upload to YouTube: {e}")
-                video_data["yt_err"] = str(e)
-        else:
-            print("YouTube credentials not found. Skipping YouTube upload.")
-            video_data["yt_url"] = "Skipped (Not configured)"
+    # YouTube Upload (independent of Facebook success)
+    has_yt_creds = os.environ.get('YOUTUBE_TOKEN_JSON') or os.path.exists('youtube_token.json')
+    if has_yt_creds:
+        try:
+            time.sleep(2)
+            yt_title = title[:100]
+            yt_desc = f"{fb_caption}\n#shorts"
+            yt_url = upload_to_youtube(edited_video_path, yt_title, yt_desc)
+            video_data["yt_url"] = yt_url
+            logger.info(f"Successfully uploaded to YouTube: {yt_url}")
+        except Exception as e:
+            logger.error(f"Failed to upload to YouTube: {e}")
+            print(f"Failed to upload to YouTube: {e}")
+            video_data["yt_err"] = str(e)
+    else:
+        logger.info("YouTube credentials not found. Skipping YouTube upload.")
+        print("YouTube credentials not found. Skipping YouTube upload.")
+        video_data["yt_url"] = "Skipped (Not configured)"
 
     # Cleanup edited video after upload
     if os.path.exists(edited_video_path):
         os.remove(edited_video_path)
 
     return video_data
-
-
-import logging
-logger = logging.getLogger(__name__)
 
 
 if __name__ == "__main__":

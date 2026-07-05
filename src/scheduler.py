@@ -7,7 +7,6 @@ import os
 import sys
 import json
 import time
-import subprocess
 import random
 from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
@@ -96,122 +95,21 @@ def main():
         logger.info(f"Daily quota of {max_daily} videos reached. Skipping.")
         return
 
-    # 2. Run scan to populate queue
-    logger.info("Scanning for new pet videos...")
-    next_video = run_downloader()
-
-    if not next_video:
-        logger.info("No new pet videos available.")
-        return
-
-    video_id = next_video['id']
-    source_url = next_video['source_url']
-    title = next_video['title']
-
-    logger.info(f"Processing video ID {video_id}: {title}")
-    report_progress("Starting Processing Pipeline", f"Video ID: {video_id}\nTitle: {title}")
-
-    # Update status to PROCESSING
-    update_queue_status(video_id, "PROCESSING")
-
-    # 3. Execute download, translation, editing
+    # 2. Run the full pipeline via main_agent (download + edit + upload + report)
     try:
-        python_exe = sys.executable
-        cmd = [python_exe, 'run_pipeline.py', source_url]
-        logger.info(f"Running: {' '.join(cmd)}")
+        # Import and run the full pipeline from main_agent
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+        from main_agent import run_pipeline
 
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        report_progress("Starting Full Pipeline", "Download + Edit + Upload + Report")
+        run_pipeline()
 
-        if result.returncode != 0:
-            error_msg = f"Pipeline failed (code {result.returncode}): {result.stderr}"
-            logger.error(error_msg)
-            report_failure("output_dubbed_reel.mp4", error_msg, max_daily - recent_count - 1)
-            update_queue_status(video_id, "FAILED")
-            return
-
-        logger.info("Translation and rendering completed successfully!")
-
-        # Random delay (1-15 min) for human-like upload behavior
-        random_delay = random.randint(1, 900)
-        logger.info(f"Random jitter delay: {random_delay}s (~{random_delay/60:.1f} min)")
-        time.sleep(random_delay)
-
-        # Write state for agent_3_uploader
-        os.makedirs("workspace", exist_ok=True)
-        final_video_path = os.path.abspath("output_dubbed_reel.mp4")
-
-        video_data_state = {
-            "id": video_id,
-            "title": title,
-            "seo_title": title,
-            "source_url": source_url,
-            "local_path": os.path.abspath("workspace/raw_video.mp4"),
-            "edited_path": final_video_path,
-            "editing_status": "Success"
-        }
-        with open("workspace/video_data.json", "w") as f:
-            json.dump(video_data_state, f, indent=2)
-
-        report_data = {
-            "video_name": title,
-            "download_status": "Success",
-            "editing_status": "Success",
-            "upload_status": "PENDING",
-            "seo_title": title,
-            "description": "N/A",
-            "facebook_url": "N/A",
-            "youtube_url": "N/A",
-            "source_url": source_url
-        }
-        with open("workspace/report.json", "w") as f:
-            json.dump(report_data, f, indent=2)
-
-        # 4. Upload
-        uploader_script = os.path.join(os.path.dirname(__file__), 'agent_3_uploader.py')
-        if os.path.exists(uploader_script):
-            try:
-                logger.info("Triggering Agent 3: Facebook + YouTube Uploader...")
-                upload_res = subprocess.run(
-                    [python_exe, uploader_script],
-                    capture_output=True, text=True, timeout=300
-                )
-                logger.info(f"Agent 3 stdout: {upload_res.stdout}")
-                if upload_res.stderr:
-                    logger.warning(f"Agent 3 stderr: {upload_res.stderr}")
-            except Exception as e:
-                logger.error(f"Error running uploader: {e}")
-
-        # 5. Save to history
-        save_to_history(video_id)
-        update_queue_status(video_id, "COMPLETED")
-
-        history = load_processed_history()
-        history.append({
-            "id": video_id,
-            "title": title,
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        })
-        save_processed_history(history)
-
-        # 6. Run Reporter
-        reporter_script = os.path.join(os.path.dirname(__file__), 'agent_4_reporter.py')
-        if os.path.exists(reporter_script):
-            try:
-                logger.info("Triggering Agent 4: Reporter...")
-                subprocess.run(
-                    [python_exe, reporter_script],
-                    capture_output=True, text=True, timeout=120
-                )
-            except Exception as e:
-                logger.error(f"Error running reporter: {e}")
-
-        logger.info(f"Video {video_id} processed, uploaded, and logged.")
+        logger.info("Full pipeline completed successfully.")
 
     except Exception as e:
         error_msg = f"Unexpected error during scheduling: {e}"
         logger.error(error_msg)
-        report_failure("output_dubbed_reel.mp4", error_msg, max(0, max_daily - recent_count - 1))
-        update_queue_status(video_id, "FAILED")
+        report_failure("pipeline", error_msg, max(0, max_daily - recent_count - 1))
 
 
 if __name__ == "__main__":

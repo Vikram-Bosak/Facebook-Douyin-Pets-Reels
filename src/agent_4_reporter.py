@@ -30,15 +30,19 @@ def main():
     video_name = html.escape(report.get('video_name', 'N/A'))
     download_status = html.escape(report.get('download_status', 'Failed / Unknown'))
     editing_status = html.escape(report.get('editing_status', 'N/A'))
-    upload_status = html.escape(report.get('upload_status', 'N/A'))
     seo_title = html.escape(report.get('seo_title', 'N/A'))
     description = html.escape(report.get('description', 'N/A'))
     raw_video_url = html.escape(report.get('source_url', 'N/A'))
 
     fb_url = html.escape(report.get('facebook_url', report.get('fb_url', 'N/A')))
     yt_url = html.escape(report.get('youtube_url', report.get('yt_url', 'N/A')))
+    fb_err = report.get('fb_err', '')
+    yt_err = report.get('yt_err', '')
 
-    yt_status = "Success" if "youtube.com" in yt_url or "youtu.be" in yt_url else "Failed / N/A"
+    # Determine per-platform status accurately
+    fb_status = "Success" if "facebook.com" in fb_url or "fb.com" in fb_url else ("Failed" if fb_err else "N/A")
+    yt_status = "Success" if "youtube.com" in yt_url or "youtu.be" in yt_url else ("Failed" if yt_err else "Skipped")
+    overall_status = "Success" if fb_status == "Success" or yt_status == "Success" else "Failed"
 
     # GitHub Action Variables
     repo = os.environ.get('GITHUB_REPOSITORY') or "Vikram-Bosak/Facebook-Douyin-Pets-Reels"
