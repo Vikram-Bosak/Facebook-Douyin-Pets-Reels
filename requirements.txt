@@ -1,5 +1,34 @@
+# Core
 requests>=2.31.0
 Pillow>=10.0.0
 ffmpeg-python>=0.2.0
 python-dotenv>=1.0.0
 yt-dlp>=2024.1.0
+httpx>=0.25.0
+
+# AI & Translation
+openai>=1.0.0
+deep-translator>=1.11.0
+
+# TTS
+edge-tts>=6.1.0
+
+# Google API (Facebook + YouTube upload)
+google-api-python-client>=2.100.0
+google-auth-httplib2>=0.1.0
+google-auth-oauthlib>=1.0.0
+
+# Browser automation (for Douyin download)
+playwright>=1.40.0
+
+# Web scraping
+beautifulsoup4>=4.12.0
+cloudscraper>=1.2.71
+
+# Telegram
+python-telegram-bot>=20.0
+
+# Video processing (optional)
+# openai-whisper>=20230918
+# kokoro-onnx>=0.1.0
+# soundfile>=0.12.0

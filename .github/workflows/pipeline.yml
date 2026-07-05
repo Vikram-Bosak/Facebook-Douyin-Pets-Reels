@@ -1,9 +1,13 @@
-name: Douyin Pets Reels Pipeline
+name: Pet Reels Automated Pipeline
 
 on:
+  push:
+    branches:
+      - main
   schedule:
-    # Run every 4 hours
-    - cron: '0 */4 * * *'
+    # Run every 4 hours (6 times/day)
+    # UTC: 00:00, 04:00, 08:00, 12:00, 16:00, 20:00
+    - cron: '0 0,4,8,12,16,20 * * *'
   workflow_dispatch:
     inputs:
       force:
@@ -16,17 +20,24 @@ env:
 
 jobs:
   pipeline:
+    name: Pet Reels E2E Pipeline
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    concurrency:
+      group: pet-pipeline
+      cancel-in-progress: false
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: true
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
 
       - name: Install system dependencies
         run: |
@@ -38,14 +49,49 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Install Playwright browsers
+        run: |
+          playwright install chromium --with-deps || true
+
       - name: Run pipeline
         run: python main_agent.py
+        env:
+          # Facebook
+          FB_ACCESS_TOKEN: ${{ secrets.FB_ACCESS_TOKEN }}
+          FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
+          # AI/Translation
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          # Discord
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          # Telegram
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # YouTube (optional)
+          YOUTUBE_TOKEN_JSON: ${{ secrets.YOUTUBE_TOKEN_JSON }}
+          # Translation toggle
+          ENABLE_TRANSLATION: ${{ secrets.ENABLE_TRANSLATION }}
+          TTS_VOICE: ${{ secrets.TTS_VOICE || 'en-US-ChristopherNeural' }}
+          SUBTITLE_LANGUAGE: "english"
+          # Limits
+          MAX_DAILY_UPLOADS: "6"
 
-      - name: Upload downloaded videos
+      - name: Upload edited videos
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: pet-videos-${{ github.run_number }}
-          path: workspace/videos/
+          path: |
+            workspace/edited/
+            output_dubbed_reel.mp4
           retention-days: 7
           if-no-files-found: ignore
+
+      - name: Commit updated files
+        if: always()
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add downloaded_history.txt workspace/processed_history.json workspace/state.json || true
+          git commit -m "Update download history and logs [skip ci]" || true
+          git pull --rebase origin main || true
+          git push origin main || true

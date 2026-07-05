@@ -1,43 +1,70 @@
-"""
-Daily processing limits to stay under API quotas and avoid overuse.
-"""
-
 import os
 import json
-from pathlib import Path
+from datetime import datetime
 
-MAX_DOWNLOADS_PER_DAY = int(os.environ.get("MAX_DOWNLOADS", "10"))
-MAX_EDITS_PER_DAY = int(os.environ.get("MAX_EDITS", "10"))
-STATE_DIR = Path(os.environ.get("WORKSPACE_DIR", "workspace"))
-COUNTER_FILE = STATE_DIR / "daily_counter.json"
+LIMITS_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "temp", "daily_limits.json")
 
+MAX_DOWNLOADS = 5
+MAX_EDITS = 5
+MAX_UPLOADS = 5
 
-def _load_counter() -> dict:
-    if COUNTER_FILE.exists():
-        return json.loads(COUNTER_FILE.read_text())
-    return {"count": 0}
+def _load_limits():
+    today = datetime.utcnow().date().isoformat()
+    if os.path.exists(LIMITS_FILE):
+        try:
+            with open(LIMITS_FILE, "r") as f:
+                data = json.load(f)
+                if data.get("date") == today:
+                    return data
+        except Exception as e:
+            print(f"Error loading limits: {e}")
+            pass
+            
+    # Reset limits for today
+    return {
+        "date": today,
+        "downloads": 0,
+        "edits": 0,
+        "uploads": 0
+    }
 
+def _save_limits(data):
+    os.makedirs(os.path.dirname(LIMITS_FILE), exist_ok=True)
+    try:
+        with open(LIMITS_FILE, "w") as f:
+            json.dump(data, f, indent=4)
+    except Exception as e:
+        print(f"Error saving limits: {e}")
 
-def _save_counter(data: dict):
-    COUNTER_FILE.parent.mkdir(parents=True, exist_ok=True)
-    COUNTER_FILE.write_text(json.dumps(data, indent=2))
+# Downloader API
+def can_download() -> bool:
+    data = _load_limits()
+    return data.get("downloads", 0) < MAX_DOWNLOADS
 
+def increment_download():
+    data = _load_limits()
+    data["downloads"] = data.get("downloads", 0) + 1
+    _save_limits(data)
+    print(f"Daily Downloads count updated: {data['downloads']}/{MAX_DOWNLOADS}")
 
-def get_today_count() -> int:
-    data = _load_counter()
-    return data.get("count", 0)
+# Editor API
+def can_edit() -> bool:
+    data = _load_limits()
+    return data.get("edits", 0) < MAX_EDITS
 
+def increment_edit():
+    data = _load_limits()
+    data["edits"] = data.get("edits", 0) + 1
+    _save_limits(data)
+    print(f"Daily Edits count updated: {data['edits']}/{MAX_EDITS}")
 
-def check_daily_limits() -> bool:
-    """Return True if we are still under the daily limit."""
-    return get_today_count() < MAX_EDITS_PER_DAY
+# Uploader API
+def can_upload() -> bool:
+    data = _load_limits()
+    return data.get("uploads", 0) < MAX_UPLOADS
 
-
-def increment_counter():
-    data = _load_counter()
-    data["count"] = data.get("count", 0) + 1
-    _save_counter(data)
-
-
-def reset_counter():
-    _save_counter({"count": 0})
+def increment_upload():
+    data = _load_limits()
+    data["uploads"] = data.get("uploads", 0) + 1
+    _save_limits(data)
+    print(f"Daily Uploads count updated: {data['uploads']}/{MAX_UPLOADS}")

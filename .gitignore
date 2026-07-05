@@ -24,8 +24,10 @@ env/
 # Workspace / output
 workspace/videos/
 workspace/edited/
+workspace/rss/
 workspace/*.json
 workspace/_overlay.png
+output_dubbed_reel.mp4
 
 # Environment / secrets
 .env
@@ -37,6 +39,16 @@ Thumbs.db
 
 # Logs
 *.log
+logs/
+
+# Database
+database/
+
+# Assets (downloaded at runtime)
+assets/*.ttf
+assets/*.onnx
+assets/*.bin
+assets/*.mp3
 
 # Jupyter
 .ipynb_checkpoints/

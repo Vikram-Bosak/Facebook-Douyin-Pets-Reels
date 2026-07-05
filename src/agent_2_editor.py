@@ -1,9 +1,10 @@
 """
-Agent 2: Douyin Pet Video Editor
+Agent 2: Pet Video Editor
 - Generates Chinese headlines via Nvidia API
 - Creates yellow border overlay with PIL
 - Composites to 1080x1920 format with FFmpeg
-- Saves edited video to workspace/edited/
+- Applies anti-copyright filters (speed, crop, color, pitch)
+- Integration with translation pipeline
 """
 
 import os
@@ -11,6 +12,7 @@ import re
 import json
 import logging
 import subprocess
+import shutil
 import random
 from pathlib import Path
 from typing import Optional
@@ -83,8 +85,7 @@ def _generate_headline() -> str:
         resp.raise_for_status()
         data = resp.json()
         headline = data["choices"][0]["message"]["content"].strip()
-        # Clean up: remove quotes and extra whitespace
-        headline = headline.strip("\"'「」""")
+        headline = headline.strip("\"'「」\"\"")
         if len(headline) > 30:
             headline = headline[:28] + "…"
         return headline
@@ -99,13 +100,13 @@ def _create_overlay_image(headline: str) -> str:
     img = Image.new("RGBA", (OUTPUT_WIDTH, OUTPUT_HEIGHT), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
-    # Draw yellow border
+    # Yellow border
     draw.rectangle(
         [0, 0, OUTPUT_WIDTH - 1, OUTPUT_HEIGHT - 1],
         outline=BORDER_COLOR,
         width=BORDER_WIDTH,
     )
-    # Second inner border for double-border effect
+    # Double border effect
     draw.rectangle(
         [BORDER_WIDTH + 4, BORDER_WIDTH + 4,
          OUTPUT_WIDTH - BORDER_WIDTH - 5, OUTPUT_HEIGHT - BORDER_WIDTH - 5],
@@ -113,7 +114,7 @@ def _create_overlay_image(headline: str) -> str:
         width=4,
     )
 
-    # Load a font (try system CJK fonts, fallback to default)
+    # Load font (try CJK fonts first, then fallback)
     font = None
     font_paths = [
         "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
@@ -122,6 +123,8 @@ def _create_overlay_image(headline: str) -> str:
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
         "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+        os.path.join(os.path.dirname(__file__), '..', 'assets', 'NotoSansSC-Regular.ttf'),
+        os.path.join(os.path.dirname(__file__), '..', 'assets', 'BebasNeue-Regular.ttf'),
     ]
     for fp in font_paths:
         if os.path.exists(fp):
@@ -142,18 +145,16 @@ def _create_overlay_image(headline: str) -> str:
     text_x = (OUTPUT_WIDTH - text_w) // 2
     text_y = HEADLINE_POSITION_Y
 
-    # Shadow
     shadow_offset = 3
     draw.text((text_x + shadow_offset, text_y + shadow_offset),
               headline, font=font, fill=TEXT_SHADOW_COLOR)
-    # Main text
     draw.text((text_x, text_y), headline, font=font, fill=TEXT_COLOR)
 
     # Save overlay
     overlay_path = "workspace/edited/_overlay.png"
     os.makedirs(os.path.dirname(overlay_path), exist_ok=True)
     img.save(overlay_path, "PNG")
-    logger.info("Created overlay image: %s", overlay_path)
+    logger.info(f"Created overlay image: {overlay_path}")
     return overlay_path
 
 
@@ -161,28 +162,21 @@ def _get_video_duration(video_path: str) -> float:
     """Get video duration in seconds using ffprobe."""
     try:
         result = subprocess.run(
-            [
-                "ffprobe", "-v", "quiet",
-                "-print_format", "json",
-                "-show_format",
-                video_path,
-            ],
+            ["ffprobe", "-v", "quiet", "-print_format", "json",
+             "-show_format", video_path],
             capture_output=True, text=True, timeout=30,
         )
         data = json.loads(result.stdout)
         return float(data["format"]["duration"])
     except Exception as exc:
         logger.warning("Could not get duration: %s", exc)
-        return 15.0  # default
+        return 15.0
 
 
 def _edit_with_ffmpeg(input_path: str, overlay_path: str, output_path: str):
-    """
-    Use FFmpeg to:
-    1. Scale video to fill 1080x1920 (pad if needed)
-    2. Overlay the border + headline image
-    """
+    """Use FFmpeg to scale, pad, and overlay the border+headline."""
     duration = _get_video_duration(input_path)
+    max_duration = min(duration, 58)  # Cap at 58s for Reels
 
     cmd = [
         "ffmpeg", "-y",
@@ -190,10 +184,8 @@ def _edit_with_ffmpeg(input_path: str, overlay_path: str, output_path: str):
         "-i", overlay_path,
         "-filter_complex",
         (
-            # Scale source to fit within 1080x1920, pad to exact size
             "[0:v]scale=1080:1920:force_original_aspect_ratio=decrease,"
             "pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black,"
-            # Overlay the border + headline on top
             "[1:v]overlay=0:0"
         ),
         "-c:v", "libx264",
@@ -201,71 +193,177 @@ def _edit_with_ffmpeg(input_path: str, overlay_path: str, output_path: str):
         "-crf", "23",
         "-c:a", "aac",
         "-b:a", "128k",
-        "-t", str(min(duration, 60)),  # cap at 60 seconds
+        "-t", str(max_duration),
         "-movflags", "+faststart",
         output_path,
     ]
 
-    logger.info("Running FFmpeg: %s", " ".join(cmd))
+    logger.info("Running FFmpeg compositing...")
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     if result.returncode != 0:
         logger.error("FFmpeg stderr: %s", result.stderr[-500:] if result.stderr else "")
         raise RuntimeError(f"FFmpeg failed with code {result.returncode}")
 
 
-def edit_video(
-    input_path: str,
-    output_dir: str = "workspace/edited",
-) -> Optional[str]:
-    """
-    Edit a single video:
-    1. Generate headline
-    2. Create overlay
-    3. Composite with FFmpeg
-    Returns output path or None on failure.
-    """
-    if not os.path.exists(input_path):
-        logger.error("Input video not found: %s", input_path)
-        return None
+def apply_copyright_filters(video_path):
+    """Apply anti-copyright filters: speed 1.05x, crop 5%, brightness +5%, pitch shift."""
+    logger.info("Applying Anti-Copyright Filters (Speed 1.05x, Crop 5%, Brightness +5%, Pitch shift)...")
+    temp_path = video_path.replace(".mp4", "_clean.mp4")
 
-    # Generate headline
+    try:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        shutil.move(video_path, temp_path)
+
+        cmd = [
+            'ffmpeg', '-y',
+            '-i', temp_path,
+            '-vf', "setpts=PTS/1.05,crop=w=iw*0.95:h=ih*0.95,scale=iw:ih,eq=brightness=0.05:contrast=1.05:saturation=1.1",
+            '-af', "asetrate=44100*1.05,aresample=44100",
+            video_path
+        ]
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        if res.returncode == 0:
+            logger.info(f"Anti-Copyright filters applied: {video_path}")
+        else:
+            logger.error(f"Anti-Copyright filter failed: {res.stderr}. Restoring original.")
+            if os.path.exists(video_path):
+                os.remove(video_path)
+            shutil.move(temp_path, video_path)
+
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+    except Exception as e:
+        logger.error(f"Error applying anti-copyright filters: {e}")
+        if os.path.exists(temp_path) and not os.path.exists(video_path):
+            shutil.move(temp_path, video_path)
+
+
+def validate_aspect_ratio(video_path) -> bool:
+    """Check if video has 9:16 aspect ratio."""
+    try:
+        cmd = [
+            'ffprobe', '-v', 'error',
+            '-select_streams', 'v:0',
+            '-show_entries', 'stream=width,height',
+            '-of', 'json', video_path
+        ]
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                text=True, check=True, timeout=15)
+        info = json.loads(result.stdout)
+        streams = info.get('streams', [])
+        if not streams:
+            return False
+        width = streams[0].get('width')
+        height = streams[0].get('height')
+        if not width or not height:
+            return False
+        ratio = width / height
+        return 0.55 <= ratio <= 0.58
+    except Exception as e:
+        logger.warning(f"Error checking aspect ratio: {e}")
+        return False
+
+
+def process_video(video_data) -> dict:
+    """
+    Main video processing entry point.
+    Handles translation (if enabled), editing, and anti-copyright filters.
+    """
+    logger.info("Starting Agent 2: Video Editor")
+
+    raw_video_path = video_data.get('local_path', "workspace/raw_video.mp4")
+    title = video_data.get('title', 'Unknown Video')
+    edited_video_path = f"workspace/edited/edited_{video_data.get('id', 'video')}.mp4"
+
+    if not os.path.exists(raw_video_path):
+        logger.error(f"Raw video not found at {raw_video_path}.")
+        video_data["editing_status"] = "Failed"
+        return video_data
+
+    # Translation step if enabled
+    translate_enabled = os.environ.get('ENABLE_TRANSLATION', 'false').lower() == 'true'
+    if translate_enabled:
+        logger.info("Translating Chinese video to English...")
+        try:
+            try:
+                from .translator import translate_video
+            except ImportError:
+                from translator import translate_video
+
+            output_dir = "workspace"
+            sub_lang = os.environ.get('SUBTITLE_LANGUAGE', 'english')
+            translation_result = translate_video(
+                raw_video_path,
+                output_dir=output_dir,
+                burn_subtitles=False,
+                subtitle_language=sub_lang
+            )
+            if translation_result and translation_result.get('english_video'):
+                translated_video = translation_result['english_video']
+                if os.path.exists(translated_video):
+                    video_data["editing_status"] = "Success"
+                    video_data["seo_title"] = title
+                    video_data["edited_path"] = edited_video_path
+                    os.makedirs(os.path.dirname(edited_video_path), exist_ok=True)
+                    shutil.copy2(translated_video, edited_video_path)
+                    logger.info(f"Translated video saved at: {edited_video_path}")
+
+                    apply_copyright_filters(edited_video_path)
+
+                    # Cleanup
+                    if raw_video_path != translated_video and os.path.exists(raw_video_path):
+                        try:
+                            os.remove(raw_video_path)
+                        except:
+                            pass
+                    try:
+                        os.remove(translated_video)
+                    except:
+                        pass
+                    return video_data
+        except Exception as e:
+            logger.error(f"Translation failed: {e}. Proceeding with original video.")
+
+    # Non-translation path: headline + overlay + ffmpeg
+    logger.info(f"Processing video: {title}")
     headline = _generate_headline()
-    logger.info("Generated headline: %s", headline)
+    logger.info(f"Generated Headline: {headline}")
 
-    # Create overlay
     overlay_path = _create_overlay_image(headline)
 
-    # Build output path
-    basename = os.path.basename(input_path)
-    output_path = os.path.join(output_dir, f"edited_{basename}")
-    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(os.path.dirname(edited_video_path), exist_ok=True)
 
-    # Run FFmpeg
     try:
-        _edit_with_ffmpeg(input_path, overlay_path, output_path)
-    except Exception as exc:
-        logger.error("FFmpeg editing failed for %s: %s", input_path, exc)
-        return None
+        _edit_with_ffmpeg(raw_video_path, overlay_path, edited_video_path)
+        video_data["editing_status"] = "Success"
+        video_data["seo_title"] = headline
+        video_data["edited_path"] = edited_video_path
 
-    if os.path.exists(output_path):
-        file_size = os.path.getsize(output_path)
-        logger.info("Edited video saved: %s (%d bytes)", output_path, file_size)
-        return output_path
-    else:
-        logger.error("Output file not created: %s", output_path)
-        return None
+        apply_copyright_filters(edited_video_path)
+
+        # Cleanup
+        if os.path.exists(raw_video_path):
+            os.remove(raw_video_path)
+        if os.path.exists(overlay_path):
+            os.remove(overlay_path)
+        return video_data
+    except Exception as e:
+        logger.error(f"Editing failed: {e}")
+        video_data["editing_status"] = "Failed"
+        return video_data
 
 
 if __name__ == "__main__":
     import sys
-
     logging.basicConfig(level=logging.INFO)
     if len(sys.argv) < 2:
         print("Usage: python agent_2_editor.py <input_video_path>")
         sys.exit(1)
-    result = edit_video(sys.argv[1])
-    if result:
-        print(f"Edited video: {result}")
+    data = {"id": "test", "title": "test video", "local_path": sys.argv[1]}
+    result = process_video(data)
+    if result.get("editing_status") == "Success":
+        print(f"Edited video: {result.get('edited_path')}")
     else:
         print("Editing failed.")
         sys.exit(1)
