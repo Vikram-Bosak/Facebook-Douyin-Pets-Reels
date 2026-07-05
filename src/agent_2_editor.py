@@ -239,6 +239,69 @@ def apply_copyright_filters(video_path):
             shutil.move(temp_path, video_path)
 
 
+def overlay_on_pet_template(video_path, output_path):
+    """
+    Overlays video onto the Daily Pet Joy template.
+    Template: assets/pet_template.jpg (1080x1920)
+    Content area: ~x=50, y=92, w=980, h=1715 (below header, above bottom wave)
+    Video is scaled to fill the content area and composited onto the template.
+    """
+    logger.info("Applying pet template overlay to video...")
+
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    template_path = os.path.join(base_dir, 'assets', 'pet_template.jpg')
+    if not os.path.exists(template_path):
+        template_path = 'assets/pet_template.jpg'
+
+    if not os.path.exists(template_path):
+        logger.error(f"Pet template not found at {template_path}. Skipping overlay.")
+        return video_path
+
+    try:
+        # Content area in the 1080x1920 template
+        # Header ~92px, bottom wave ~113px, side borders ~50px each
+        content_x = 50
+        content_y = 92
+        content_w = 980
+        content_h = 1715
+
+        # Scale video to fill content area, crop if needed
+        # Then overlay on template at (content_x, content_y)
+        cmd = [
+            'ffmpeg', '-y',
+            '-i', template_path,
+            '-i', video_path,
+            '-filter_complex',
+            (
+                # Scale source video to fill content area exactly, cropping excess
+                f'[1:v]scale={content_w}:{content_h}:force_original_aspect_ratio=increase,'
+                f'crop={content_w}:{content_h}[vid];'
+                # Scale template to 1080x1920 (safety)
+                '[0:v]scale=1080:1920[tmp];'
+                # Overlay video onto template at content area position
+                f'[tmp][vid]overlay={content_x}:{content_y}[outv]'
+            ),
+            '-map', '[outv]',
+            '-map', '1:a',
+            '-c:v', 'libx264',
+            '-preset', 'fast',
+            '-crf', '23',
+            '-c:a', 'copy',
+            output_path
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        if result.returncode != 0:
+            logger.error(f"FFmpeg template overlay failed: {result.stderr[-300:]}")
+            return video_path
+
+        logger.info(f"Video overlaid on pet template: {output_path}")
+        return output_path
+    except Exception as e:
+        logger.error(f"Error during template overlay: {e}")
+        return video_path
+
+
 def validate_aspect_ratio(video_path) -> bool:
     """Check if video has 9:16 aspect ratio."""
     try:
@@ -311,6 +374,13 @@ def process_video(video_data) -> dict:
 
                     apply_copyright_filters(edited_video_path)
 
+                    # Apply pet template overlay
+                    template_video_path = edited_video_path.replace(".mp4", "_templated.mp4")
+                    overlaid = overlay_on_pet_template(edited_video_path, template_video_path)
+                    if overlaid != edited_video_path and os.path.exists(overlaid):
+                        shutil.move(overlaid, edited_video_path)
+                        logger.info(f"Pet template applied to translated video")
+
                     # Cleanup
                     if raw_video_path != translated_video and os.path.exists(raw_video_path):
                         try:
@@ -341,6 +411,13 @@ def process_video(video_data) -> dict:
         video_data["edited_path"] = edited_video_path
 
         apply_copyright_filters(edited_video_path)
+
+        # Apply pet template overlay
+        template_video_path = edited_video_path.replace(".mp4", "_templated.mp4")
+        overlaid = overlay_on_pet_template(edited_video_path, template_video_path)
+        if overlaid != edited_video_path and os.path.exists(overlaid):
+            shutil.move(overlaid, edited_video_path)
+            logger.info(f"Pet template applied")
 
         # Cleanup
         if os.path.exists(raw_video_path):
