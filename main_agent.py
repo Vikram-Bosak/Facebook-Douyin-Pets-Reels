@@ -89,10 +89,8 @@ def run_pipeline():
                 logger.warning(f"Video not found: {video_path}")
                 continue
 
-            # Check aspect ratio
-            if not validate_aspect_ratio(video_path):
-                logger.info(f"Skipping {video_path} - not 9:16 aspect ratio")
-                continue
+            # Aspect ratio check - auto-crop to 9:16 instead of skipping
+            # FFmpeg in agent_2_editor handles scale+pad to 1080x1920
 
             video_data = {
                 "id": Path(video_path).stem,

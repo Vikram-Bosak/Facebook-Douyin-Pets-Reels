@@ -184,8 +184,9 @@ def _edit_with_ffmpeg(input_path: str, overlay_path: str, output_path: str):
         "-i", overlay_path,
         "-filter_complex",
         (
-            "[0:v]scale=1080:1920:force_original_aspect_ratio=decrease,"
-            "pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black,"
+            # Smart 9:16 conversion: crop landscape center, scale portrait to fit
+            "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,"
+            "crop=1080:1920,"
             "[1:v]overlay=0:0"
         ),
         "-c:v", "libx264",
