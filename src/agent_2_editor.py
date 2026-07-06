@@ -243,9 +243,9 @@ def apply_copyright_filters(video_path):
 def overlay_on_pet_template(video_path, output_path):
     """
     Overlays video onto the Daily Pet Joy template.
-    Template: assets/pet_template.jpg (1080x1920)
-    Content area: ~x=50, y=92, w=980, h=1715 (below header, above bottom wave)
-    Video is scaled to fill the content area and composited onto the template.
+    Template: assets/pet_template.jpg (932x1280 native)
+    Output: 1080x1920 (Reels format)
+    Content area: X=46, Y=77, W=907, H=883 (in 932x1280 template)
     """
     logger.info("Applying pet template overlay to video...")
 
@@ -259,35 +259,43 @@ def overlay_on_pet_template(video_path, output_path):
         return video_path
 
     try:
-        # Content area in the 1080x1920 template
-        # Header with logo ~200px, bottom wave ~113px, side borders ~50px each
-        content_x = 50
-        content_y = 200
-        content_w = 980
-        content_h = 1607
+        # Template is 932x1280, output must be 1080x1920
+        # Scale template to fill width (1080px), center vertically
+        scale = 1080 / 932  # = 1.159
+        scaled_h = int(1280 * scale)  # = 1483
+        y_offset = (1920 - scaled_h) // 2  # = 218 (black bar at top/bottom)
 
-        # Scale video to fill content area, crop if needed
-        # Then overlay on template at (content_x, content_y)
+        # Content area in scaled template
+        content_x = int(46 * scale)   # = 53
+        content_y = int(77 * scale) + y_offset  # = 307
+        content_w = int(907 * scale)  # = 1051
+        content_h = int(883 * scale)  # = 1023
+
+        # Video: scale to fill content area, crop excess
         cmd = [
             'ffmpeg', '-y',
+            '-f', 'lavfi', '-i', f'color=c=black:s=1080x1920:d=1',  # black canvas
             '-i', template_path,
             '-i', video_path,
             '-filter_complex',
             (
-                # Scale source video to fill content area exactly, cropping excess
-                f'[1:v]scale={content_w}:{content_h}:force_original_aspect_ratio=increase,'
+                # Scale template to 1080 width, center vertically on black canvas
+                f'[1:v]scale=1080:-2:force_original_aspect_ratio=decrease[tmp_scaled];'
+                # Place scaled template centered on black canvas
+                f'[0:v][tmp_scaled]overlay=(W-w)/2:{y_offset}[tmp_placed];'
+                # Scale video to fill content area exactly, crop excess
+                f'[2:v]scale={content_w}:{content_h}:force_original_aspect_ratio=increase,'
                 f'crop={content_w}:{content_h}[vid];'
-                # Scale template to 1080x1920 (safety)
-                '[0:v]scale=1080:1920[tmp];'
-                # Overlay video onto template at content area position
-                f'[tmp][vid]overlay={content_x}:{content_y}[outv]'
+                # Overlay video onto template at content area
+                f'[tmp_placed][vid]overlay={content_x}:{content_y}[outv]'
             ),
             '-map', '[outv]',
-            '-map', '1:a',
+            '-map', '2:a',
             '-c:v', 'libx264',
             '-preset', 'fast',
             '-crf', '23',
             '-c:a', 'copy',
+            '-t', '59',  # max 59s for Reels
             output_path
         ]
 
