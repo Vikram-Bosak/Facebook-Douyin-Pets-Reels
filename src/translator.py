@@ -118,36 +118,36 @@ def _transcribe_with_openai_api(audio_path):
 
 
 def _transcribe_with_local_whisper(audio_path):
-    """Use local openai-whisper package for transcription."""
+    """Use faster-whisper for transcription (lightweight, fast on CPU)."""
     try:
-        import whisper
+        from faster_whisper import WhisperModel
 
-        logger.info("Loading local Whisper model (base)...")
-        model = whisper.load_model("base")
+        logger.info("Loading Faster-Whisper model (base)...")
+        model = WhisperModel('base', device='cpu', compute_type='int8')
 
-        result = model.transcribe(
+        segments_iter, info = model.transcribe(
             audio_path,
-            language="zh",
-            task="transcribe",
-            verbose=False
+            language='zh',
+            beam_size=5,
         )
+        logger.info(f"Detected language: {info.language} ({info.language_probability:.2f})")
 
         segments = []
-        for seg in result.get('segments', []):
+        for seg in segments_iter:
             segments.append({
-                'start': seg['start'],
-                'end': seg['end'],
-                'text': seg['text'].strip()
+                'start': seg.start,
+                'end': seg.end,
+                'text': seg.text.strip()
             })
 
-        logger.info(f"Transcribed {len(segments)} segments locally")
+        logger.info(f"Transcribed {len(segments)} segments via Faster-Whisper")
         return segments
 
     except ImportError:
-        logger.error("whisper package not installed. Run: pip install openai-whisper")
+        logger.error("faster-whisper not installed. Run: pip install faster-whisper")
         return []
     except Exception as e:
-        logger.error(f"Local Whisper transcription failed: {e}")
+        logger.error(f"Faster-Whisper transcription failed: {e}")
         return []
 
 

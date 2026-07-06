@@ -31,4 +31,4 @@ cloudscraper>=1.2.71
 python-telegram-bot>=20.0
 
 # Video processing
-openai-whisper>=20230918
+faster-whisper>=0.10.0
