@@ -611,47 +611,88 @@ def _generate_full_narration(video_path):
         return random.choice(long_scripts)
 
 def merge_audio_with_video(video_path, audio_path, bg_music_path=None, output_path=None):
-    """Mix original background audio (reduced) with English TTS.
-    Original sound effects kept at 15% volume, Chinese speech reduced.
-    English TTS added at 85% volume for clear dubbing.
+    """Mix separated sound effects with English TTS.
+    Uses Demucs to extract only sound effects (no vocals/Chinese speech).
     """
     if output_path is None:
         base, ext = os.path.splitext(video_path)
         output_path = f"{base}_english{ext}"
 
-    logger.info("Merging translated audio with video (keeping original SFX)...")
+    logger.info("Separating sound effects from vocals using Demucs...")
 
     try:
-        # Mix: Original audio (15% - keeps sound effects) + English TTS (85%)
-        # This way: sound effects remain, Chinese speech is reduced, English is clear
-        cmd = [
-            'ffmpeg', '-y',
-            '-i', video_path,      # Original video with Chinese audio
-            '-i', audio_path,       # English TTS audio
-            '-filter_complex',
-            (
-                # Original audio: reduce to 15% (keeps SFX, reduces Chinese speech)
-                '[0:a]volume=0.15[original];'
-                # English TTS: boost to 85% (clear dubbing)
-                '[1:a]volume=0.85[english];'
-                # Mix both: original (background) + english (foreground)
-                '[original][english]amix=inputs=2:duration=first:dropout_transition=0[outa]'
-            ),
-            '-map', '0:v:0', '-map', '[outa]',
-            '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k',
-            output_path
-        ]
+        # Step 1: Extract audio from video
+        temp_dir = tempfile.gettempdir()
+        original_audio = os.path.join(temp_dir, "original_audio.wav")
+        subprocess.run([
+            'ffmpeg', '-y', '-i', video_path,
+            '-vn', '-acodec', 'pcm_s16le', '-ar', '44100', '-ac', '2',
+            original_audio
+        ], capture_output=True, timeout=60)
+
+        # Step 2: Use Demucs to separate vocals from sound effects
+        demucs_output = os.path.join(temp_dir, "demucs_output")
+        subprocess.run([
+            'demucs', '--two-stems', 'vocals',
+            '-o', demucs_output,
+            original_audio
+        ], capture_output=True, timeout=300)
+
+        # Find the no_vocals.wav (sound effects only)
+        no_vocals_path = None
+        for root, dirs, files in os.walk(demucs_output):
+            for f in files:
+                if f == 'no_vocals.wav':
+                    no_vocals_path = os.path.join(root, f)
+                    break
+
+        if no_vocals_path and os.path.exists(no_vocals_path):
+            logger.info(f"Sound effects extracted: {no_vocals_path}")
+            # Step 3: Mix sound effects (100%) + English TTS (100%)
+            cmd = [
+                'ffmpeg', '-y',
+                '-i', no_vocals_path,    # Sound effects only (no vocals)
+                '-i', audio_path,         # English TTS
+                '-filter_complex',
+                (
+                    '[0:a]volume=1.0[sfx];'      # Sound effects at full volume
+                    '[1:a]volume=1.0[english];'   # English TTS at full volume
+                    '[sfx][english]amix=inputs=2:duration=first:dropout_transition=0[outa]'
+                ),
+                '-map', '[outa]',
+                '-c:a', 'aac', '-b:a', '192k',
+                '-t', '179',  # Max 2min 59s
+                output_path
+            ]
+        else:
+            logger.warning("Demucs separation failed. Using original audio reduced.")
+            # Fallback: Original audio at 15% + English TTS
+            cmd = [
+                'ffmpeg', '-y',
+                '-i', video_path, '-i', audio_path,
+                '-filter_complex',
+                '[0:a]volume=0.15[orig];[1:a]volume=1.0[eng];[orig][eng]amix=inputs=2:duration=first:dropout_transition=0[outa]',
+                '-map', '0:v:0', '-map', '[outa]',
+                '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k',
+                output_path
+            ]
 
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         if result.returncode != 0:
             logger.error(f"FFmpeg merge failed: {result.stderr}")
             return None
 
-        logger.info(f"Video with mixed audio created: {output_path}")
+        # Cleanup temp files
+        for f in [original_audio, no_vocals_path]:
+            if f and os.path.exists(f):
+                try: os.remove(f)
+                except: pass
+
+        logger.info(f"Video with sound effects + English dub created: {output_path}")
         return output_path
 
     except Exception as e:
-        logger.error(f"Error merging audio: {e}")
+        logger.error(f"Error in audio separation: {e}")
         return None
 
 
