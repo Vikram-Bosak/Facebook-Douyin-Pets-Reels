@@ -176,7 +176,7 @@ def _get_video_duration(video_path: str) -> float:
 def _edit_with_ffmpeg(input_path: str, overlay_path: str, output_path: str):
     """Use FFmpeg to scale, pad, and overlay the border+headline."""
     duration = _get_video_duration(input_path)
-    max_duration = min(duration, 58)  # Cap at 58s for Reels
+    max_duration = min(duration, 179)  # Cap at 2min 59s for Reels
 
     cmd = [
         "ffmpeg", "-y",
@@ -295,7 +295,7 @@ def overlay_on_pet_template(video_path, output_path):
             '-preset', 'fast',
             '-crf', '23',
             '-c:a', 'copy',
-            '-t', '59',  # max 59s for Reels
+            '-t', '179',  # max 2min 59s for Reels
             output_path
         ]
 

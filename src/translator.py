@@ -811,10 +811,10 @@ def burn_subtitles_into_video(video_path, srt_path, output_path=None, language='
 
 # ============================================================
 # UTILITY: Trim video to max 59s for Reels
-# ============================================================
+# UTILITY: Trim video to max 2min 59s (179s)
 
-def trim_video_to_59s(video_path, output_dir):
-    """Trims video to 59 seconds if longer."""
+def trim_video_to_179s(video_path, output_dir):
+    """Trims video to 179 seconds (2min 59s) if longer."""
     try:
         cmd = [
             'ffprobe', '-v', 'error',
@@ -824,13 +824,13 @@ def trim_video_to_59s(video_path, output_dir):
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
         duration = float(res.stdout.strip())
 
-        if duration > 59.0:
-            logger.info(f"Video is {duration:.2f}s. Trimming to 59s...")
+        if duration > 179.0:
+            logger.info(f"Video is {duration:.2f}s. Trimming to 179s (2min 59s)...")
             base = os.path.basename(video_path)
             trimmed_path = os.path.join(output_dir, f"trimmed_{base}")
             trim_cmd = [
                 'ffmpeg', '-y', '-i', video_path,
-                '-ss', '0', '-t', '59',
+                '-ss', '0', '-t', '179',
                 '-c:v', 'libx264', '-c:a', 'aac', '-crf', '18',
                 trimmed_path
             ]
@@ -838,7 +838,7 @@ def trim_video_to_59s(video_path, output_dir):
             logger.info(f"Video trimmed: {trimmed_path}")
             return trimmed_path
         else:
-            logger.info(f"Video is {duration:.2f}s. No trimming needed.")
+            logger.info(f"Video is {duration:.2f}s. No trimming needed (max 179s).")
             return video_path
     except Exception as e:
         logger.error(f"Error trimming video: {e}")
@@ -866,7 +866,7 @@ def translate_video(video_path, output_dir=None, burn_subtitles=True, subtitle_l
 
     # Trim if needed
     original_video_path = video_path
-    video_path = trim_video_to_59s(video_path, output_dir)
+    video_path = trim_video_to_179s(video_path, output_dir)
 
     temp_files = []
     if video_path != original_video_path:
