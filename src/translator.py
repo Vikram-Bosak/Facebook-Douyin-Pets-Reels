@@ -327,6 +327,9 @@ def get_kokoro():
             if not os.path.exists(model_path):
                 model_path = 'assets/kokoro/kokoro-v1.0.onnx'
                 voices_path = 'assets/kokoro/voices-v1.0.bin'
+            if not os.path.exists(model_path):
+                model_path = os.path.join(os.getcwd(), 'assets', 'kokoro', 'kokoro-v1.0.onnx')
+                voices_path = os.path.join(os.getcwd(), 'assets', 'kokoro', 'voices-v1.0.bin')
             if os.path.exists(model_path) and os.path.exists(voices_path):
                 logger.info(f"Initializing Kokoro ONNX model from {model_path}...")
                 _kokoro_instance = Kokoro(model_path, voices_path)
@@ -338,58 +341,20 @@ def get_kokoro():
 
 
 def generate_segment_tts(text, voice, output_path):
-    """Generate a single TTS audio chunk using OpenAI TTS -> Kokoro ONNX -> edge-tts."""
-    # 1st: OpenAI TTS
-    api_key = os.environ.get('OPENAI_API_KEY')
-    if api_key:
-        try:
-            from openai import OpenAI
-            client = OpenAI(api_key=api_key)
-            openai_voice = 'onyx'
-            voice_lower = voice.lower()
-            if 'christopher' in voice_lower or 'guy' in voice_lower or 'eric' in voice_lower or 'male' in voice_lower:
-                openai_voice = 'onyx'
-            elif 'samantha' in voice_lower or 'jenny' in voice_lower or 'aria' in voice_lower or 'female' in voice_lower:
-                openai_voice = 'nova'
-            elif voice in ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']:
-                openai_voice = voice
-
-            response = client.audio.speech.create(
-                model="tts-1",
-                voice=openai_voice,
-                input=text,
-                speed=0.9
-            )
-            response.stream_to_file(output_path)
-            return True
-        except Exception as e:
-            logger.error(f"OpenAI TTS failed: {e}. Falling back.")
-
-    # 2nd: Kokoro ONNX
+    """Generate a single TTS audio chunk using Kokoro ONNX -> edge-tts."""
+    # 1st: Kokoro ONNX with Adam voice
     try:
         kokoro = get_kokoro()
         if kokoro:
-            kokoro_voice = "af_sarah"
-            voice_lower = voice.lower()
-            if 'guy' in voice_lower or 'male' in voice_lower or 'christopher' in voice_lower or 'george' in voice_lower:
-                kokoro_voice = "bm_george"
-            elif 'bella' in voice_lower:
-                kokoro_voice = "af_bella"
-            elif 'heart' in voice_lower:
-                kokoro_voice = "af_heart"
-            elif 'michael' in voice_lower:
-                kokoro_voice = "am_michael"
-            elif 'nicole' in voice_lower or 'emma' in voice_lower:
-                kokoro_voice = "bf_emma"
-            elif voice.startswith("af_") or voice.startswith("am_") or voice.startswith("bf_") or voice.startswith("bm_"):
-                kokoro_voice = voice
-
-            samples, sample_rate = kokoro.create(text, voice=kokoro_voice, speed=0.9, lang="en-us")
+            # Always use Adam voice (am_adam) for consistent quality
+            kokoro_voice = "am_adam"
+            samples, sample_rate = kokoro.create(text, voice=kokoro_voice, speed=0.9, lang='en-us')
             import soundfile as sf
             sf.write(output_path, samples, sample_rate)
+            logger.info(f"Kokoro TTS generated: {output_path}")
             return True
     except Exception as e:
-        logger.error(f"Kokoro TTS generation failed: {e}. Falling back to edge-tts.")
+        logger.error(f"Kokoro TTS failed: {e}. Falling back to edge-tts.")
 
     # 3rd: edge-tts (free fallback)
     try:

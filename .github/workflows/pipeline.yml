@@ -55,6 +55,14 @@ jobs:
         run: |
           playwright install chromium --with-deps || true
 
+      - name: Download Kokoro TTS model
+        run: |
+          mkdir -p assets/kokoro
+          wget -q https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx -O assets/kokoro/kokoro-v1.0.onnx
+          wget -q https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin -O assets/kokoro/voices-v1.0.bin
+          echo "Kokoro model downloaded:"
+          ls -lh assets/kokoro/
+
       - name: Run pipeline
         run: python main_agent.py
         env:
