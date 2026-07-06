@@ -245,7 +245,7 @@ def overlay_on_pet_template(video_path, output_path):
     Overlays video onto the Daily Pet Joy template.
     Template: assets/pet_template.jpg (932x1280 native)
     Output: 1080x1920 (Reels format)
-    Content area: X=46, Y=77, W=907, H=883 (in 932x1280 template)
+    Content area: X=28, Y=104, W=876, H=1080 (in 932x1280 template)
     """
     logger.info("Applying pet template overlay to video...")
 
@@ -265,13 +265,13 @@ def overlay_on_pet_template(video_path, output_path):
         scaled_h = int(1280 * scale)  # = 1483
         y_offset = (1920 - scaled_h) // 2  # = 218 (black bar at top/bottom)
 
-        # Content area in scaled template
-        content_x = int(46 * scale)   # = 53
-        content_y = int(77 * scale) + y_offset  # = 307
-        content_w = int(907 * scale)  # = 1051
-        content_h = int(883 * scale)  # = 1023
+        # Content area in scaled template (exact coordinates)
+        content_x = int(28 * scale)    # = 32
+        content_y = int(104 * scale) + y_offset  # = 339
+        content_w = int(876 * scale)   # = 1015
+        content_h = int(1080 * scale)  # = 1252
 
-        # Video: scale to fill content area, crop excess
+        # Video: scale to fill content area exactly, crop excess
         cmd = [
             'ffmpeg', '-y',
             '-f', 'lavfi', '-i', f'color=c=black:s=1080x1920:d=1',  # black canvas
