@@ -30,7 +30,5 @@ cloudscraper>=1.2.71
 # Telegram
 python-telegram-bot>=20.0
 
-# Video processing (optional)
-# openai-whisper>=20230918
-# kokoro-onnx>=0.1.0
-# soundfile>=0.12.0
+# Video processing
+openai-whisper>=20230918
