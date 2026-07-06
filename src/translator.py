@@ -606,6 +606,45 @@ def _generate_fallback_narration(video_title):
     ]
     return random.choice(narrations)
 
+
+def _generate_full_narration(video_path):
+    """Generate a full-length English narration covering the entire video duration."""
+    import random
+    
+    # Get video duration
+    duration = 30.0  # default
+    try:
+        cmd = ['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+               '-of', 'csv=p=0', video_path]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        duration = float(result.stdout.strip())
+    except:
+        pass
+    
+    # Narration scripts for different durations
+    short_scripts = [
+        "Look at this adorable pet! So cute and fluffy! This little one is melting hearts everywhere! What a precious moment!",
+    ]
+    
+    medium_scripts = [
+        "Look at this adorable pet! So cute and fluffy! This little one is melting hearts everywhere! What a precious moment! "
+        "Can you believe how sweet this is? This furry friend just made everyone's day! Share this cuteness with your friends!",
+    ]
+    
+    long_scripts = [
+        "Look at this adorable pet! So cute and fluffy! This little one is melting hearts everywhere! What a precious moment! "
+        "Can you believe how sweet this is? This furry friend just made everyone's day! "
+        "Nature is full of beautiful surprises like this. Pets bring so much joy to our lives! "
+        "Share this cuteness with your friends and family! Follow for more adorable pet videos every day!",
+    ]
+    
+    if duration < 15:
+        return random.choice(short_scripts)
+    elif duration < 35:
+        return random.choice(medium_scripts)
+    else:
+        return random.choice(long_scripts)
+
 def merge_audio_with_video(video_path, audio_path, bg_music_path=None, output_path=None):
     """Mix original background audio (vocals removed) with English TTS + copyright-free BGM."""
     if output_path is None:
@@ -846,12 +885,20 @@ def translate_video(video_path, output_dir=None, burn_subtitles=True, subtitle_l
         use_api = bool(os.environ.get('OPENAI_API_KEY'))
         segments = transcribe_chinese_audio(audio_path, use_api=use_api)
         
-        # Fallback: If transcription fails, generate narration from video title
+        # Fallback: If transcription fails, generate narration covering full video
         if not segments:
-            logger.warning("Transcription failed. Using fallback: generate English narration from title.")
-            video_title = os.path.splitext(os.path.basename(video_path))[0]
-            fallback_text = _generate_fallback_narration(video_title)
-            segments = [{'start': 0.0, 'end': 5.0, 'text': fallback_text}]
+            logger.warning("Transcription failed. Using fallback: generate full English narration.")
+            full_narration = _generate_full_narration(video_path)
+            # Get video duration for full coverage
+            vid_duration = 30.0
+            try:
+                cmd = ['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+                       '-of', 'csv=p=0', video_path]
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+                vid_duration = float(result.stdout.strip())
+            except:
+                pass
+            segments = [{'start': 0.0, 'end': vid_duration, 'text': full_narration}]
         
         logger.info(f"Transcribed {len(segments)} segments")
 
