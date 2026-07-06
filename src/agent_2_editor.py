@@ -260,11 +260,11 @@ def overlay_on_pet_template(video_path, output_path):
 
     try:
         # Content area in the 1080x1920 template
-        # Header ~92px, bottom wave ~113px, side borders ~50px each
+        # Header with logo ~200px, bottom wave ~113px, side borders ~50px each
         content_x = 50
-        content_y = 92
+        content_y = 200
         content_w = 980
-        content_h = 1715
+        content_h = 1607
 
         # Scale video to fill content area, crop if needed
         # Then overlay on template at (content_x, content_y)
