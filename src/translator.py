@@ -611,62 +611,36 @@ def _generate_full_narration(video_path):
         return random.choice(long_scripts)
 
 def merge_audio_with_video(video_path, audio_path, bg_music_path=None, output_path=None):
-    """Mix original background audio (vocals removed) with English TTS + copyright-free BGM."""
+    """Mix original background audio (reduced) with English TTS.
+    Original sound effects kept at 15% volume, Chinese speech reduced.
+    English TTS added at 85% volume for clear dubbing.
+    """
     if output_path is None:
         base, ext = os.path.splitext(video_path)
         output_path = f"{base}_english{ext}"
 
-    logger.info("Merging translated audio with video...")
-
-    new_bgm_path = download_default_bgm()
+    logger.info("Merging translated audio with video (keeping original SFX)...")
 
     try:
-        is_sfx_separated = bg_music_path and bg_music_path.endswith('other.wav') and os.path.exists(bg_music_path)
-
-        if new_bgm_path and os.path.exists(new_bgm_path):
-            if is_sfx_separated:
-                # SFX(90%) + English(60%) + BGM(8%)
-                cmd = [
-                    'ffmpeg', '-y',
-                    '-i', video_path, '-i', bg_music_path, '-i', audio_path,
-                    '-stream_loop', '-1', '-i', new_bgm_path,
-                    '-filter_complex',
-                    '[1:a]volume=0.9[sfx];[2:a]volume=0.6[fg];[3:a]volume=0.08[bg];[sfx][fg][bg]amix=inputs=3:duration=first:dropout_transition=0[outa]',
-                    '-map', '0:v:0', '-map', '[outa]',
-                    '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k',
-                    output_path
-                ]
-            else:
-                # English(60%) + BGM(8%)
-                cmd = [
-                    'ffmpeg', '-y',
-                    '-i', video_path, '-i', audio_path,
-                    '-stream_loop', '-1', '-i', new_bgm_path,
-                    '-filter_complex',
-                    '[1:a]volume=0.6[fg];[2:a]volume=0.08[bg];[fg][bg]amix=inputs=2:duration=first:dropout_transition=0[outa]',
-                    '-map', '0:v:0', '-map', '[outa]',
-                    '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k',
-                    output_path
-                ]
-        else:
-            if is_sfx_separated:
-                cmd = [
-                    'ffmpeg', '-y',
-                    '-i', video_path, '-i', bg_music_path, '-i', audio_path,
-                    '-filter_complex',
-                    '[1:a]volume=1.0[sfx];[2:a]volume=1.0[fg];[sfx][fg]amix=inputs=2:duration=first:dropout_transition=0[outa]',
-                    '-map', '0:v:0', '-map', '[outa]',
-                    '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k',
-                    output_path
-                ]
-            else:
-                cmd = [
-                    'ffmpeg', '-y',
-                    '-i', video_path, '-i', audio_path,
-                    '-map', '0:v:0', '-map', '1:a',
-                    '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k',
-                    output_path
-                ]
+        # Mix: Original audio (15% - keeps sound effects) + English TTS (85%)
+        # This way: sound effects remain, Chinese speech is reduced, English is clear
+        cmd = [
+            'ffmpeg', '-y',
+            '-i', video_path,      # Original video with Chinese audio
+            '-i', audio_path,       # English TTS audio
+            '-filter_complex',
+            (
+                # Original audio: reduce to 15% (keeps SFX, reduces Chinese speech)
+                '[0:a]volume=0.15[original];'
+                # English TTS: boost to 85% (clear dubbing)
+                '[1:a]volume=0.85[english];'
+                # Mix both: original (background) + english (foreground)
+                '[original][english]amix=inputs=2:duration=first:dropout_transition=0[outa]'
+            ),
+            '-map', '0:v:0', '-map', '[outa]',
+            '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k',
+            output_path
+        ]
 
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         if result.returncode != 0:
