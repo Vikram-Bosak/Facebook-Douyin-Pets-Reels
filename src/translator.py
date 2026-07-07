@@ -348,7 +348,7 @@ def generate_segment_tts(text, voice, output_path):
         if kokoro:
             # Always use Adam voice (am_adam) for consistent quality
             kokoro_voice = "am_adam"
-            samples, sample_rate = kokoro.create(text, voice=kokoro_voice, speed=0.9, lang='en-us')
+            samples, sample_rate = kokoro.create(text, voice=kokoro_voice, speed=0.75, lang='en-us')
             import soundfile as sf
             sf.write(output_path, samples, sample_rate)
             logger.info(f"Kokoro TTS generated: {output_path}")
@@ -433,10 +433,11 @@ def generate_english_tts(segments, output_audio_path=None, video_path=None):
 
             temp_seg_final = temp_seg_raw
 
-            # Speed up if TTS is longer than original segment
+            # Adjust speed to match target duration
             if actual_dur > target_dur:
+                # TTS is longer - speed up slightly (max 1.1x)
                 speed = actual_dur / target_dur
-                speed = min(speed, 1.05)  # cap at 1.05x
+                speed = min(speed, 1.1)
 
                 if speed > 2.0:
                     filters = ["atempo=2.0", f"atempo={speed/2.0:.4f}"]
@@ -453,6 +454,22 @@ def generate_english_tts(segments, output_audio_path=None, video_path=None):
                     temp_seg_final = temp_seg_speed
                 except Exception as e:
                     logger.error(f"Failed to speed up segment {idx}: {e}")
+
+            elif actual_dur < target_dur * 0.8:
+                # TTS is much shorter - slow it down to fill the time
+                speed = actual_dur / target_dur
+                speed = max(speed, 0.7)  # Don't slow below 0.7x
+
+                temp_seg_slow = os.path.join(temp_dir, f"seg_slow_{idx}.wav")
+                try:
+                    subprocess.run([
+                        'ffmpeg', '-y', '-i', temp_seg_raw,
+                        '-filter:a', f"atempo={speed:.4f}",
+                        temp_seg_slow
+                    ], capture_output=True, check=True)
+                    temp_seg_final = temp_seg_slow
+                except Exception as e:
+                    logger.error(f"Failed to slow segment {idx}: {e}")
 
             input_idx = len(inputs) // 2
             inputs.extend(['-i', temp_seg_final])
