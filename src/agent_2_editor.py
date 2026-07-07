@@ -200,7 +200,7 @@ def _edit_with_ffmpeg(input_path: str, overlay_path: str, output_path: str):
     ]
 
     logger.info("Running FFmpeg compositing...")
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
     if result.returncode != 0:
         logger.error("FFmpeg stderr: %s", result.stderr[-500:] if result.stderr else "")
         raise RuntimeError(f"FFmpeg failed with code {result.returncode}")
@@ -248,7 +248,7 @@ def _add_watermark(input_path: str, output_path: str):
             "-movflags", "+faststart",
             output_path,
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
         if result.returncode != 0:
             logger.error(f"Watermark FFmpeg failed: {result.stderr[-300:]}")
             return
@@ -274,7 +274,7 @@ def apply_copyright_filters(video_path):
             '-af', "asetrate=44100*1.05,aresample=44100",
             video_path
         ]
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
         if res.returncode == 0:
             logger.info(f"Anti-Copyright filters applied: {video_path}")
         else:
