@@ -612,15 +612,22 @@ def mute_speech_keep_sfx(video_path, output_path=None):
         return output_path
 
     try:
-        # Step 1: Reduce vocal frequencies (center channel) + boost sound effects
+        # Step 1: Aggressively remove speech, keep sound effects
+        # Center channel cancellation (speech is center-panned)
+        # Bandpass targets speech frequencies (300-3000Hz) to reduce further
+        # Then boost remaining sound effects to 90%
         vocal_reduce_filter = (
+            # Center channel cancellation — removes center-panned speech
             "pan=stereo|c0=c0-c1|c1=c1-c0,"
-            "highpass=f=200,lowpass=f=4000,"
-            "volume=2.5,"
+            # Target speech frequency range for removal
+            "highpass=f=300,lowpass=f=3000,"
+            # Boost sound effects to 90% volume
+            "volume=0.9,"
+            # Normalize to prevent clipping
             "loudnorm=I=-16:TP=-1.5:LRA=11"
         )
 
-        # Step 2: Mix with BGM
+        # Step 2: Mix boosted SFX (90%) with BGM (5%)
         cmd = [
             'ffmpeg', '-y',
             '-i', video_path,
@@ -629,7 +636,7 @@ def mute_speech_keep_sfx(video_path, output_path=None):
             '-filter_complex',
             (
                 f'[0:a]{vocal_reduce_filter}[sfx];'
-                f'[1:a]atrim=0:{duration},volume=0.3[bgm];'
+                f'[1:a]atrim=0:{duration},volume=0.05[bgm];'  # BGM at 5%
                 f'[sfx][bgm]amix=inputs=2:duration=first:dropout_transition=0[outa]'
             ),
             '-map', '0:v:0', '-map', '[outa]',
@@ -643,14 +650,14 @@ def mute_speech_keep_sfx(video_path, output_path=None):
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         if result.returncode != 0:
             logger.error(f"FFmpeg vocal reduce failed: {result.stderr[-500:]}")
-            logger.info("Fallback: Muting all audio + BGM only")
+            logger.info("Fallback: Muting all audio + BGM at 5%")
             cmd = [
                 'ffmpeg', '-y',
                 '-i', video_path,
                 '-stream_loop', '-1',
                 '-i', bgm_path,
                 '-filter_complex',
-                f'[1:a]atrim=0:{duration},volume=0.4[bgm]',
+                f'[1:a]atrim=0:{duration},volume=0.05[bgm]',
                 '-map', '0:v:0', '-map', '[bgm]',
                 '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k',
                 '-shortest',
