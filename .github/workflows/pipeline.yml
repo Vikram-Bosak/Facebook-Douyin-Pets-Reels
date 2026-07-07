@@ -79,7 +79,7 @@ jobs:
           # YouTube (optional)
           YOUTUBE_TOKEN_JSON: ${{ secrets.YOUTUBE_TOKEN_JSON }}
           # Translation toggle
-          ENABLE_TRANSLATION: "false"
+          ENABLE_TRANSLATION: "true"
           TTS_VOICE: ${{ secrets.TTS_VOICE || 'en-US-ChristopherNeural' }}
           SUBTITLE_LANGUAGE: "english"
           SKIP_DEMUCS: "true"
