@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Bilibili pet keywords
 # ---------------------------------------------------------------------------
-PET_KEYWORDS = ["猫 狗 搞笑", "猫咪搞笑", "狗狗搞笑", "猫 搞笑瞬间", "狗 搞笑瞬间", "猫咪日常", "狗狗日常", "布偶猫", "柴犬"]
+PET_KEYWORDS = ["猫咪搞笑 竖屏", "狗狗搞笑 竖屏", "猫 搞笑 竖屏", "狗 搞笑 竖屏", "猫咪日常 竖屏", "狗狗日常 竖屏", "宠物搞笑 竖屏", "布偶猫 竖屏", "柴犬 竖屏"]
 
 # ---------------------------------------------------------------------------
 # Bilibili API endpoints
@@ -116,8 +116,8 @@ def _search_bilibili(keyword: str, page: int = 1) -> List[Dict[str, Any]]:
 
 # ===== DOWNLOAD VIA PLAYURL API =============================================
 
-def _get_cid(bvid: str) -> Optional[int]:
-    """Get CID for a video via the view API."""
+def _get_video_info(bvid: str) -> Optional[Dict[str, Any]]:
+    """Get video info including dimensions from the view API."""
     try:
         resp = requests.get(
             BILIBILI_VIEW_URL,
@@ -132,25 +132,44 @@ def _get_cid(bvid: str) -> Optional[int]:
             logger.warning("view API error for %s: %s", bvid, data.get("message"))
             return None
 
-        cid = data["data"].get("cid")
-        if cid:
-            logger.info("Got CID %d for %s", cid, bvid)
-            return cid
+        video_data = data.get("data", {})
+        cid = video_data.get("cid")
+        if not cid:
+            pages = video_data.get("pages", [])
+            if pages:
+                cid = pages[0].get("cid")
 
-        # Fallback: first page cid
-        pages = data["data"].get("pages", [])
-        if pages:
-            cid = pages[0].get("cid")
-            if cid:
-                logger.info("Got CID %d (from pages) for %s", cid, bvid)
-                return cid
+        if not cid:
+            logger.warning("No CID found for %s", bvid)
+            return None
 
-        logger.warning("No CID found for %s", bvid)
-        return None
+        # Get dimensions from stat or other fields
+        width = video_data.get("width", 0)
+        height = video_data.get("height", 0)
+
+        # Try to get from dimension field
+        dimension = video_data.get("dimension", {})
+        if dimension:
+            width = dimension.get("width", width)
+            height = dimension.get("height", height)
+
+        return {
+            "cid": cid,
+            "width": width,
+            "height": height,
+            "title": video_data.get("title", ""),
+            "duration": video_data.get("duration", 0),
+        }
 
     except Exception as exc:
-        logger.error("Failed to get CID for %s: %s", bvid, exc)
+        logger.error("Failed to get video info for %s: %s", bvid, exc)
         return None
+
+
+def _get_cid(bvid: str) -> Optional[int]:
+    """Get CID for a video via the view API."""
+    info = _get_video_info(bvid)
+    return info["cid"] if info else None
 
 
 def _get_stream_url(bvid: str, cid: int) -> Optional[str]:
@@ -281,9 +300,10 @@ def _download_video_bilibili(
 ) -> Optional[str]:
     """
     Full download pipeline for a single Bilibili video:
-      1. Get CID
-      2. Get stream URL via playurl API
-      3. Download with requests
+      1. Get video info (dimensions, CID)
+      2. Filter: only portrait/vertical videos (9:16 or taller)
+      3. Get stream URL via playurl API
+      4. Download with requests
     Returns the local file path or None.
     """
     vid_hash = _hash_video_id(bvid)
@@ -295,10 +315,26 @@ def _download_video_bilibili(
             logger.info("Already downloaded: %s", existing)
             return existing
 
-    # Step 1: get CID
-    cid = _get_cid(bvid)
-    if cid is None:
+    # Step 1: get video info (CID + dimensions)
+    info = _get_video_info(bvid)
+    if info is None:
         return None
+
+    cid = info["cid"]
+    width = info.get("width", 0)
+    height = info.get("height", 0)
+
+    # Step 2: PORTRAIT FILTER — only download vertical/portrait videos
+    if width > 0 and height > 0:
+        ratio = width / height
+        if ratio > 0.8:  # Landscape or square — skip
+            logger.info("Skipping LANDSCAPE video %s (%dx%d, ratio %.2f) — need portrait 9:16",
+                       bvid, width, height, ratio)
+            return None
+        logger.info("Portrait video confirmed %s (%dx%d, ratio %.2f) ✓",
+                    bvid, width, height, ratio)
+    else:
+        logger.info("Dimensions unknown for %s — proceeding with download", bvid)
 
     time.sleep(0.5)
 
