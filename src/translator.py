@@ -682,15 +682,17 @@ def merge_audio_with_video(video_path, audio_path, bg_music_path=None, output_pa
                 output_path
             ]
         else:
-            logger.warning("Demucs separation failed. Using original audio reduced.")
-            # Fallback: Original audio at 15% + English TTS
+            logger.warning("Demucs separation failed. Using English TTS only (no original audio to prevent double dubbing).")
+            # FIX: Original audio at 0% + English TTS only
+            # Previously mixed original at 15% which caused double dubbing
             cmd = [
                 'ffmpeg', '-y',
                 '-i', video_path, '-i', audio_path,
                 '-filter_complex',
-                '[0:a]volume=0.15[orig];[1:a]volume=1.0[eng];[orig][eng]amix=inputs=2:duration=first:dropout_transition=0[outa]',
-                '-map', '0:v:0', '-map', '[outa]',
+                '[1:a]volume=1.0[eng]',
+                '-map', '0:v:0', '-map', '[eng]',
                 '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k',
+                '-shortest',
                 output_path
             ]
 

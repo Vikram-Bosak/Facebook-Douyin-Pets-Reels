@@ -174,7 +174,7 @@ def _get_video_duration(video_path: str) -> float:
 
 
 def _edit_with_ffmpeg(input_path: str, overlay_path: str, output_path: str):
-    """Use FFmpeg to scale, pad, and overlay the border+headline."""
+    """Use FFmpeg to scale to 9:16 (1080x1920) and overlay the headline border."""
     duration = _get_video_duration(input_path)
     max_duration = min(duration, 179)  # Cap at 2min 59s for Reels
 
@@ -184,7 +184,7 @@ def _edit_with_ffmpeg(input_path: str, overlay_path: str, output_path: str):
         "-i", overlay_path,
         "-filter_complex",
         (
-            # Smart 9:16 conversion: crop landscape center, scale portrait to fit
+            # 9:16 conversion: scale to fill 1080x1920, crop excess, overlay headline
             "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,"
             "crop=1080:1920,"
             "[1:v]overlay=0:0"
@@ -204,6 +204,57 @@ def _edit_with_ffmpeg(input_path: str, overlay_path: str, output_path: str):
     if result.returncode != 0:
         logger.error("FFmpeg stderr: %s", result.stderr[-500:] if result.stderr else "")
         raise RuntimeError(f"FFmpeg failed with code {result.returncode}")
+def _add_watermark(input_path: str, output_path: str):
+    """Add a subtle channel name watermark to the video using FFmpeg drawtext."""
+    watermark_text = os.environ.get("WATERMARK_TEXT", "DailyPetJoy")
+    logger.info(f"Adding watermark '{watermark_text}' to video...")
+
+    try:
+        # Find a usable font
+        font_path = None
+        font_candidates = [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+            "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+        ]
+        for fp in font_candidates:
+            if os.path.exists(fp):
+                font_path = fp
+                break
+
+        font_opt = f"fontfile={font_path}:" if font_path else ""
+
+        # Subtle watermark: low opacity (0.15), bottom-right, small font
+        drawtext = (
+            f"drawtext={font_opt}"
+            f"text='{watermark_text}':"
+            f"fontsize=28:"
+            f"fontcolor=white@0.15:"
+            f"x=w-tw-20:"
+            f"y=h-th-20:"
+            f"shadowcolor=black@0.1:"
+            f"shadowx=1:shadowy=1"
+        )
+
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", input_path,
+            "-vf", drawtext,
+            "-c:v", "libx264",
+            "-preset", "fast",
+            "-crf", "23",
+            "-c:a", "copy",
+            "-movflags", "+faststart",
+            output_path,
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        if result.returncode != 0:
+            logger.error(f"Watermark FFmpeg failed: {result.stderr[-300:]}")
+            return
+        logger.info(f"Watermark added: {output_path}")
+    except Exception as e:
+        logger.error(f"Error adding watermark: {e}")
 
 
 def apply_copyright_filters(video_path):
@@ -383,12 +434,11 @@ def process_video(video_data) -> dict:
 
                     apply_copyright_filters(edited_video_path)
 
-                    # Apply pet template overlay
-                    template_video_path = edited_video_path.replace(".mp4", "_templated.mp4")
-                    overlaid = overlay_on_pet_template(edited_video_path, template_video_path)
-                    if overlaid != edited_video_path and os.path.exists(overlaid):
-                        shutil.move(overlaid, edited_video_path)
-                        logger.info(f"Pet template applied to translated video")
+                    # Add subtle watermark
+                    watermarked_path = edited_video_path.replace(".mp4", "_wm.mp4")
+                    _add_watermark(edited_video_path, watermarked_path)
+                    if os.path.exists(watermarked_path):
+                        shutil.move(watermarked_path, edited_video_path)
 
                     # Cleanup
                     if raw_video_path != translated_video and os.path.exists(raw_video_path):
@@ -421,12 +471,11 @@ def process_video(video_data) -> dict:
 
         apply_copyright_filters(edited_video_path)
 
-        # Apply pet template overlay
-        template_video_path = edited_video_path.replace(".mp4", "_templated.mp4")
-        overlaid = overlay_on_pet_template(edited_video_path, template_video_path)
-        if overlaid != edited_video_path and os.path.exists(overlaid):
-            shutil.move(overlaid, edited_video_path)
-            logger.info(f"Pet template applied")
+        # Add subtle watermark
+        watermarked_path = edited_video_path.replace(".mp4", "_wm.mp4")
+        _add_watermark(edited_video_path, watermarked_path)
+        if os.path.exists(watermarked_path):
+            shutil.move(watermarked_path, edited_video_path)
 
         # Cleanup
         if os.path.exists(raw_video_path):
