@@ -22,7 +22,7 @@ jobs:
   pipeline:
     name: Pet Reels E2E Pipeline
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     permissions:
       contents: write
     concurrency:
@@ -82,6 +82,7 @@ jobs:
           ENABLE_TRANSLATION: ${{ secrets.ENABLE_TRANSLATION }}
           TTS_VOICE: ${{ secrets.TTS_VOICE || 'en-US-ChristopherNeural' }}
           SUBTITLE_LANGUAGE: "english"
+          SKIP_DEMUCS: "true"
           # Limits
           MAX_DAILY_UPLOADS: "6"
 

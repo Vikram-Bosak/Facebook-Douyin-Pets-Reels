@@ -637,6 +637,27 @@ def merge_audio_with_video(video_path, audio_path, bg_music_path=None, output_pa
 
     logger.info("Separating sound effects from vocals using Demucs...")
 
+    # Skip Demucs on GitHub Actions (CPU too slow, causes 30min timeout)
+    skip_demucs = os.environ.get('SKIP_DEMUCS', 'false').lower() == 'true'
+    if skip_demucs:
+        logger.info("SKIP_DEMUCS=true: Using English TTS only (fast, no double dubbing)")
+        cmd = [
+            'ffmpeg', '-y',
+            '-i', video_path, '-i', audio_path,
+            '-filter_complex',
+            '[1:a]volume=1.0[eng]',
+            '-map', '0:v:0', '-map', '[eng]',
+            '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k',
+            '-shortest',
+            output_path
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        if result.returncode != 0:
+            logger.error(f"FFmpeg merge failed: {result.stderr}")
+            return None
+        logger.info(f"English dubbed video created (TTS only): {output_path}")
+        return output_path
+
     try:
         # Step 1: Extract audio from video
         temp_dir = tempfile.gettempdir()
