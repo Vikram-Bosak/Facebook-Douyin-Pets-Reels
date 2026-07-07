@@ -205,38 +205,73 @@ def _get_stream_url(bvid: str, cid: int) -> Optional[str]:
         return None
 
 
-def _download_stream(url: str, output_path: str) -> Optional[str]:
-    """Download a video stream directly with requests."""
-    dl_headers = {
-        **HEADERS,
-        "Accept": "*/*",
-        "Accept-Encoding": "identity",   # no compression — want raw bytes
-        "Range": "bytes=0-",              # first chunk
-    }
-    try:
-        resp = requests.get(url, headers=dl_headers, stream=True, timeout=120)
-        resp.raise_for_status()
+def _download_stream(url: str, output_path: str, max_retries: int = 3) -> Optional[str]:
+    """Download a video stream with retry + resume support."""
+    for attempt in range(1, max_retries + 1):
+        dl_headers = {
+            **HEADERS,
+            "Accept": "*/*",
+            "Accept-Encoding": "identity",
+        }
 
-        total = 0
-        with open(output_path, "wb") as f:
-            for chunk in resp.iter_content(chunk_size=1024 * 64):
-                if chunk:
-                    f.write(chunk)
-                    total += len(chunk)
-
-        if total < 10_000:
-            logger.warning("Downloaded file too small (%d bytes), removing", total)
-            os.remove(output_path)
-            return None
-
-        logger.info("Downloaded %d bytes → %s", total, output_path)
-        return output_path
-
-    except Exception as exc:
-        logger.error("Stream download failed: %s", exc)
+        # Resume support: if partial file exists, continue from where we left off
+        existing_size = 0
         if os.path.exists(output_path):
-            os.remove(output_path)
-        return None
+            existing_size = os.path.getsize(output_path)
+            if existing_size > 0:
+                dl_headers["Range"] = f"bytes={existing_size}-"
+                logger.info("Resuming download from %d bytes (attempt %d/%d)",
+                           existing_size, attempt, max_retries)
+
+        try:
+            resp = requests.get(url, headers=dl_headers, stream=True, timeout=180)
+            resp.raise_for_status()
+
+            # If resuming, server should return 206 Partial Content
+            mode = "ab" if existing_size > 0 and resp.status_code == 206 else "wb"
+            if mode == "wb":
+                existing_size = 0  # Reset if starting fresh
+
+            total = existing_size
+            stall_count = 0
+            last_progress = time.time()
+
+            with open(output_path, mode) as f:
+                for chunk in resp.iter_content(chunk_size=128 * 1024):  # 128KB chunks
+                    if chunk:
+                        f.write(chunk)
+                        total += len(chunk)
+                        last_progress = time.time()
+                        stall_count = 0
+                    else:
+                        stall_count += 1
+                        # If no data for 30 seconds, consider stalled
+                        if time.time() - last_progress > 30:
+                            logger.warning("Download stalled at %d bytes, retrying...", total)
+                            break
+
+            if total < 10_000:
+                logger.warning("Downloaded file too small (%d bytes), removing", total)
+                if os.path.exists(output_path):
+                    os.remove(output_path)
+                return None
+
+            logger.info("Downloaded %d bytes → %s (attempt %d)", total, output_path, attempt)
+            return output_path
+
+        except Exception as exc:
+            logger.error("Stream download attempt %d/%d failed: %s", attempt, max_retries, exc)
+            # Don't remove partial file — next attempt will resume
+            if attempt < max_retries:
+                wait = attempt * 5
+                logger.info("Waiting %ds before retry...", wait)
+                time.sleep(wait)
+
+    # All retries failed — clean up
+    logger.error("All %d download attempts failed for %s", max_retries, output_path)
+    if os.path.exists(output_path):
+        os.remove(output_path)
+    return None
 
 
 def _download_video_bilibili(
