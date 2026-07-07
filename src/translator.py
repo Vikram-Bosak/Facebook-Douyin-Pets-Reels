@@ -570,6 +570,106 @@ def download_default_bgm():
 
 
 # ============================================================
+# MUTE SPEECH + KEEP SFX + ADD BGM (No dubbing experiment)
+# ============================================================
+
+def mute_speech_keep_sfx(video_path, output_path=None):
+    """
+    Mute Chinese speech, keep sound effects, add background music.
+    Uses ffmpeg center-channel cancellation + bandpass to reduce vocals.
+    """
+    if output_path is None:
+        base, ext = os.path.splitext(video_path)
+        output_path = f"{base}_muted_bgm{ext}"
+
+    logger.info("Muting speech, keeping SFX, adding BGM...")
+
+    # Get video duration for BGM looping
+    duration = 60.0
+    try:
+        cmd = ['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+               '-of', 'csv=p=0', video_path]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        duration = float(result.stdout.strip())
+    except:
+        pass
+
+    # Download BGM if needed
+    bgm_path = download_default_bgm()
+    if not bgm_path:
+        logger.warning("BGM not available. Creating video with muted audio only.")
+        cmd = [
+            'ffmpeg', '-y', '-i', video_path,
+            '-af', 'volume=0',
+            '-c:v', 'copy',
+            '-shortest',
+            output_path
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        if result.returncode != 0:
+            logger.error(f"FFmpeg mute failed: {result.stderr[-300:]}")
+            return None
+        return output_path
+
+    try:
+        # Step 1: Reduce vocal frequencies (center channel) + boost sound effects
+        vocal_reduce_filter = (
+            "pan=stereo|c0=c0-c1|c1=c1-c0,"
+            "highpass=f=200,lowpass=f=4000,"
+            "volume=2.5,"
+            "loudnorm=I=-16:TP=-1.5:LRA=11"
+        )
+
+        # Step 2: Mix with BGM
+        cmd = [
+            'ffmpeg', '-y',
+            '-i', video_path,
+            '-stream_loop', '-1',
+            '-i', bgm_path,
+            '-filter_complex',
+            (
+                f'[0:a]{vocal_reduce_filter}[sfx];'
+                f'[1:a]atrim=0:{duration},volume=0.3[bgm];'
+                f'[sfx][bgm]amix=inputs=2:duration=first:dropout_transition=0[outa]'
+            ),
+            '-map', '0:v:0', '-map', '[outa]',
+            '-c:v', 'copy',
+            '-c:a', 'aac', '-b:a', '192k',
+            '-t', '179',
+            '-shortest',
+            output_path
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        if result.returncode != 0:
+            logger.error(f"FFmpeg vocal reduce failed: {result.stderr[-500:]}")
+            logger.info("Fallback: Muting all audio + BGM only")
+            cmd = [
+                'ffmpeg', '-y',
+                '-i', video_path,
+                '-stream_loop', '-1',
+                '-i', bgm_path,
+                '-filter_complex',
+                f'[1:a]atrim=0:{duration},volume=0.4[bgm]',
+                '-map', '0:v:0', '-map', '[bgm]',
+                '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k',
+                '-shortest',
+                output_path
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            if result.returncode != 0:
+                logger.error(f"FFmpeg fallback failed: {result.stderr[-300:]}")
+                return None
+
+        logger.info(f"Speech muted + BGM added: {output_path}")
+        return output_path
+
+    except Exception as e:
+        logger.error(f"Error in mute_speech_keep_sfx: {e}")
+        return None
+
+
+# ============================================================
 # STEP 5b: Merge Translated Audio with Original Video
 # ============================================================
 

@@ -454,34 +454,49 @@ def process_video(video_data) -> dict:
         except Exception as e:
             logger.error(f"Translation failed: {e}. Proceeding with original video.")
 
-    # Non-translation path: headline + overlay + ffmpeg
-    logger.info(f"Processing video: {title}")
-    headline = _generate_headline()
-    logger.info(f"Generated Headline: {headline}")
-
-    overlay_path = _create_overlay_image(headline)
+    # Non-translation path: mute speech + add BGM + 9:16 + watermark
+    logger.info(f"Processing video (no dubbing): {title}")
 
     os.makedirs(os.path.dirname(edited_video_path), exist_ok=True)
 
     try:
+        # Step 1: Convert to 9:16 (1080x1920)
+        headline = _generate_headline()
+        overlay_path = _create_overlay_image(headline)
         _edit_with_ffmpeg(raw_video_path, overlay_path, edited_video_path)
-        video_data["editing_status"] = "Success"
-        video_data["seo_title"] = headline
-        video_data["edited_path"] = edited_video_path
+        if os.path.exists(overlay_path):
+            os.remove(overlay_path)
 
+        # Step 2: Mute Chinese speech, keep SFX, add BGM
+        try:
+            from .translator import mute_speech_keep_sfx
+        except ImportError:
+            from translator import mute_speech_keep_sfx
+
+        muted_path = edited_video_path.replace(".mp4", "_muted.mp4")
+        muted_result = mute_speech_keep_sfx(edited_video_path, muted_path)
+        if muted_result and os.path.exists(muted_result):
+            shutil.move(muted_result, edited_video_path)
+            logger.info("Speech muted + BGM applied")
+        else:
+            logger.warning("Mute speech failed, using video as-is")
+
+        # Step 3: Copyright filters
         apply_copyright_filters(edited_video_path)
 
-        # Add subtle watermark
+        # Step 4: Watermark
         watermarked_path = edited_video_path.replace(".mp4", "_wm.mp4")
         _add_watermark(edited_video_path, watermarked_path)
         if os.path.exists(watermarked_path):
             shutil.move(watermarked_path, edited_video_path)
 
+        video_data["editing_status"] = "Success"
+        video_data["seo_title"] = title
+        video_data["edited_path"] = edited_video_path
+
         # Cleanup
         if os.path.exists(raw_video_path):
             os.remove(raw_video_path)
-        if os.path.exists(overlay_path):
-            os.remove(overlay_path)
         return video_data
     except Exception as e:
         logger.error(f"Editing failed: {e}")
